@@ -2,7 +2,8 @@
 
 Los de limpieza avisan desde el celular qué falta en cada minibar; room service recibe el aviso, repone, y un tablero mide cuánto tardan y cuánto se consume. Administración carga personal, habitaciones y productos.
 
-**App funcionando:** PEGAR_ACÁ_EL_LINK  _(la primera visita puede tardar 1 minuto)_
+**App funcionando:** 
+https://minibar-tilo.onrender.com/
 
 ## Probarla (usuarios de ejemplo)
 | Perfil | Nombre | Código |

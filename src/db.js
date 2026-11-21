@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS staff (
   name text NOT NULL,
   role text NOT NULL,              -- 'admin', 'hk' (limpieza) o 'rs' (room service)
   pin_hash text NOT NULL,
-  active boolean NOT NULL DEFAULT true
+  active boolean NOT NULL DEFAULT true,
+  status text NOT NULL DEFAULT 'active' -- 'active' o 'lunch'
 );
 CREATE TABLE IF NOT EXISTS rooms (
   number text PRIMARY KEY,
@@ -47,7 +48,8 @@ CREATE TABLE IF NOT EXISTS report_items (     -- qué faltaba en cada aviso
 );
 CREATE TABLE IF NOT EXISTS sessions (
   token text PRIMARY KEY,
-  staff_id integer NOT NULL REFERENCES staff(id)
+  staff_id integer NOT NULL REFERENCES staff(id),
+  created_at bigint NOT NULL DEFAULT 0
 );`;
 
 // Datos de ejemplo, solo si la base está vacía.
@@ -55,27 +57,49 @@ async function seed(db) {
   const { rows } = await db.query('SELECT count(*) AS n FROM staff');
   if (Number(rows[0].n) > 0) return;
 
-  const people = [['Administración', 'admin', '0000'], ['Ana', 'hk', '1111'], ['Rosa', 'hk', '2222'],
-                  ['Marta', 'hk', '3333'], ['Luis (mañana)', 'rs', '9001'], ['Sofía (tarde)', 'rs', '9002']];
+  const people = [
+    ['Administración', 'admin', '0000'],
+    ['Ana', 'hk', '1111'],
+    ['Rosa', 'hk', '2222'],
+    ['Marta', 'hk', '3333'],
+    ['Luis (mañana)', 'rs', '9001'],
+    ['Sofía (tarde)', 'rs', '9002']
+  ];
   const ids = [];
   for (const [name, role, pin] of people) {
-    const r = await db.query('INSERT INTO staff (name, role, pin_hash) VALUES ($1,$2,$3) RETURNING id', [name, role, hashPin(pin)]);
+    const r = await db.query('INSERT INTO staff (name, role, pin_hash, status) VALUES ($1,$2,$3,$4) RETURNING id', [name, role, hashPin(pin), 'active']);
     ids.push(r.rows[0].id);
   }
   const floors = [[2, ids[1]], [3, ids[2]], [4, ids[3]]];       // piso -> persona de limpieza
-  for (const [floor, staffId] of floors)
-    for (let i = 1; i <= 6; i++)
+  for (const [floor, staffId] of floors) {
+    for (let i = 1; i <= 6; i++) {
       await db.query('INSERT INTO rooms (number, assigned_to) VALUES ($1,$2)', [floor + '0' + i, staffId]);
+    }
+  }
 
-  const products = [['Agua', '#2b7bb9'], ['Agua con gas', '#5a9bd4'], ['Gaseosa', '#c0392b'],
-                    ['Cerveza', '#c98a0b'], ['Snack salado', '#7a5c3e'], ['Chocolate', '#5b3a29']];
-  for (const [name, color] of products)
+  const products = [
+    ['Agua', '💧'],
+    ['Agua con gas', '🫧'],
+    ['Gaseosa', '🥤'],
+    ['Cerveza', '🍺'],
+    ['Snack salado', '🍿'],
+    ['Chocolate', '🍫']
+  ];
+  for (const [name, color] of products) {
     await db.query('INSERT INTO products (name, color) VALUES ($1,$2)', [name, color]);
+  }
 }
 
 async function startDb() {
   const db = createPool();
   await db.query(SCHEMA);
+  // Compatibilidad con bases de datos ya existentes en Supabase
+  try {
+    await db.query("ALTER TABLE staff ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
+  } catch (e) {}
+  try {
+    await db.query("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at bigint NOT NULL DEFAULT 0");
+  } catch (e) {}
   await seed(db);
   return db;
 }
