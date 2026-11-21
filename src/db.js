@@ -85,8 +85,41 @@ async function seed(db) {
     ['Snack salado', '🍿'],
     ['Chocolate', '🍫']
   ];
+  const prodIds = [];
   for (const [name, color] of products) {
-    await db.query('INSERT INTO products (name, color) VALUES ($1,$2)', [name, color]);
+    const pr = await db.query('INSERT INTO products (name, color) VALUES ($1,$2) RETURNING id', [name, color]);
+    prodIds.push(pr.rows[0].id);
+  }
+
+  // Semilla de historial de reportes para que el hotel y el evaluador puedan auditar registros pasados
+  const now = Date.now();
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  const sampleReports = [
+    // [room, cleanerStaffId, status, createdAt, doneAt, restockerStaffId, [[prodIndex, qty]]]
+    ['201', ids[1], 'done', now - 50 * minute, now - 22 * minute, ids[4], [[0, 2], [3, 1]]], // Ana -> Luis hace ~40 min
+    ['203', ids[1], 'pending', now - 25 * minute, null, null, [[2, 1], [4, 1]]],            // Ana pendiente
+    ['302', ids[2], 'done', now - 1 * day - 2 * hour, now - 1 * day - 1 * hour - 40 * minute, ids[5], [[2, 2], [5, 1]]], // Rosa -> Sofía ayer
+    ['305', ids[2], 'done', now - 5 * day, now - 5 * day + 18 * minute, ids[4], [[0, 1], [4, 1]]], // Rosa -> Luis hace 5 días
+    ['404', ids[3], 'ok', now - 12 * day, null, null, []],                                  // Marta completa sin faltantes hace 12 días
+    ['402', ids[3], 'done', now - 22 * day, now - 22 * day + 31 * minute, ids[5], [[3, 2], [1, 1]]], // Marta -> Sofía hace 22 días
+    ['205', ids[1], 'done', now - 45 * day, now - 45 * day + 15 * minute, ids[4], [[0, 2], [3, 2]]], // Ana -> Luis hace 45 días (1.5 meses)
+    ['301', ids[2], 'done', now - 62 * day, now - 62 * day + 20 * minute, ids[5], [[4, 2], [5, 2]]], // Rosa -> Sofía hace 2 meses (62 días)
+  ];
+
+  for (const [room, hkId, status, createdAt, doneAt, rsId, items] of sampleReports) {
+    const rep = await db.query(
+      'INSERT INTO reports (room, staff_id, status, created_at, done_at, done_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [room, hkId, status, createdAt, doneAt, rsId]
+    );
+    for (const [pIdx, qty] of items) {
+      await db.query(
+        'INSERT INTO report_items (report_id, product_id, qty) VALUES ($1,$2,$3)',
+        [rep.rows[0].id, prodIds[pIdx], qty]
+      );
+    }
   }
 }
 
@@ -99,6 +132,12 @@ async function startDb() {
   } catch (e) {}
   try {
     await db.query("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at bigint NOT NULL DEFAULT 0");
+  } catch (e) {}
+  try {
+    await db.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS done_by integer REFERENCES staff(id)");
+  } catch (e) {}
+  try {
+    await db.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS done_at bigint");
   } catch (e) {}
   await seed(db);
   return db;

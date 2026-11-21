@@ -15,6 +15,9 @@ const state = {
   formDrafts: {},                   // preserva texto escrito al interactuar con selects
   room: null, draft: {},            // habitación abierta y faltantes seleccionados
   tab: 'pend', range: 'today',      // pestaña activa y rango del tablero
+  historyRange: 'all',              // rango del historial: today, 7d, 30d, 60d, all
+  historyStatus: 'all',             // estado: all, done, pending, ok
+  historySearch: '',                // buscador de historial
   busy: false, banner: '', signature: '', offline: false, first: true,
 };
 const app = document.getElementById('app');
@@ -88,6 +91,42 @@ const startOfToday = () => {
   return d.getTime();
 };
 const latestToday = room => state.data.reports.find(r => r.room === room && r.createdAt >= startOfToday());
+
+function formatDateTime(ts) {
+  if (!ts) return '–';
+  const d = new Date(Number(ts));
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const day = d.getDate();
+  const month = months[d.getMonth()];
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  return `${day} ${month} ${year}, ${hours}:${mins} hs`;
+}
+
+function formatTimeOnly(ts) {
+  if (!ts) return '';
+  const d = new Date(Number(ts));
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${mins} hs`;
+}
+
+function formatTimeAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - Number(ts);
+  if (diff < 0) return 'Ahora';
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'Hace un momento';
+  if (m < 60) return `Hace ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `Hace ${h} h`;
+  const days = Math.floor(h / 24);
+  if (days === 1) return 'Ayer';
+  if (days < 30) return `Hace ${days} días`;
+  const months = Math.floor(days / 30);
+  return `Hace ${months} ${months === 1 ? 'mes' : 'meses'}`;
+}
 
 // Detección y formato exclusivo de iconos para PRODUCTOS
 function getProductIcon(p) {
@@ -393,7 +432,11 @@ const itemsHtml = items => {
 // ----- Room service y administración: Pestañas -----
 function staffView() {
   const pending = state.data.reports.filter(r => r.status === 'pending').sort((a, b) => a.createdAt - b.createdAt);
-  const tabs = [['pend', `Pendientes ${pending.length ? `(${pending.length})` : ''}`], ['dash', 'Tablero']];
+  const tabs = [
+    ['pend', `Pendientes ${pending.length ? `(${pending.length})` : ''}`],
+    ['dash', 'Tablero'],
+    ['history', 'Historial']
+  ];
   if (state.user.role === 'admin') tabs.push(['staff', 'Personal'], ['rooms', 'Habitaciones'], ['products', 'Productos']);
 
   const bar = `
@@ -413,12 +456,13 @@ function staffView() {
   const views = {
     pend: () => pendingView(pending),
     dash: dashboardView,
+    history: historyView,
     staff: adminStaffView,
     rooms: adminRoomsView,
     products: adminProductsView
   };
 
-  return banner + bar + (state.tab !== 'pend' && state.tab !== 'dash' && !state.admin
+  return banner + bar + (state.tab !== 'pend' && state.tab !== 'dash' && state.tab !== 'history' && !state.admin
     ? '<div class="loading-state"><div class="spinner"></div><p class="muted">Cargando datos…</p></div>'
     : views[state.tab]());
 }
@@ -520,6 +564,188 @@ function dashboardView() {
       }).join('')}
     </div>
     <p class="muted dash-footer-text">Total de avisos procesados: ${reports.length}. El tiempo se mide desde el aviso de limpieza hasta "Ya repuse".</p>
+  `;
+}
+
+// ----- Historial y Auditoría de Reposiciones -----
+function getFilteredHistory() {
+  const allReports = state.data.reports || [];
+  const search = (state.historySearch || '').toLowerCase().trim();
+  const range = state.historyRange || 'all';
+  const status = state.historyStatus || 'all';
+
+  const now = Date.now();
+  const dayMs = 86400000;
+  let fromTime = 0;
+  if (range === 'today') fromTime = startOfToday();
+  else if (range === '7d') fromTime = now - 7 * dayMs;
+  else if (range === '30d') fromTime = now - 30 * dayMs;
+  else if (range === '60d') fromTime = now - 60 * dayMs; // 2 meses
+
+  return allReports.filter(r => {
+    if (fromTime > 0 && r.createdAt < fromTime) return false;
+    if (status !== 'all' && r.status !== status) return false;
+    if (search) {
+      const matchRoom = String(r.room).toLowerCase().includes(search);
+      const matchBy = String(r.byName || '').toLowerCase().includes(search);
+      const matchDoneBy = String(r.doneByName || '').toLowerCase().includes(search);
+      if (!matchRoom && !matchBy && !matchDoneBy) return false;
+    }
+    return true;
+  });
+}
+
+function renderHistoryCards() {
+  const filtered = getFilteredHistory();
+  if (filtered.length === 0) {
+    return `
+      <div class="card empty-state-box">
+        <h3 style="font-size:17px;margin-bottom:6px">No se encontraron registros</h3>
+        <p class="muted">No hay movimientos que coincidan con los filtros seleccionados.</p>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="history-list">
+      ${filtered.map(r => {
+        const isDone = r.status === 'done';
+        const isPending = r.status === 'pending';
+
+        const statusTag = isDone
+          ? '<span class="history-badge done"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Repuesto</span>'
+          : isPending
+          ? '<span class="history-badge pending">⏳ Pendiente</span>'
+          : '<span class="history-badge ok">✓ Sin faltantes</span>';
+
+        const repTime = isDone && r.doneAt ? minutes(r.doneAt - r.createdAt) : null;
+
+        return `
+          <div class="card history-card ${h(r.status)}">
+            <div class="history-card-header">
+              <div class="history-card-header-left">
+                <span class="history-room-pill">Habitación ${h(r.room)}</span>
+                ${statusTag}
+              </div>
+              <div class="history-card-header-right">
+                <span class="history-datetime">${formatDateTime(r.createdAt)}</span>
+                <span class="history-timeago">(${formatTimeAgo(r.createdAt)})</span>
+              </div>
+            </div>
+
+            <div class="history-actors-grid">
+              <div class="history-actor-item">
+                <span class="actor-role-label">Registró faltante (Limpieza)</span>
+                <div class="actor-info">
+                  <div class="actor-avatar hk">${h((r.byName || 'L').charAt(0))}</div>
+                  <div class="actor-text">
+                    <span class="actor-name">${h(r.byName || 'Personal de limpieza')}</span>
+                    <span class="actor-time">Avisó a las ${formatTimeOnly(r.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="history-actor-item">
+                <span class="actor-role-label">Repuso (Room service)</span>
+                <div class="actor-info">
+                  ${isDone ? `
+                    <div class="actor-avatar rs">${h((r.doneByName || 'R').charAt(0))}</div>
+                    <div class="actor-text">
+                      <span class="actor-name">${h(r.doneByName || 'Personal de Room service')}</span>
+                      <span class="actor-time">Repuso a las ${formatTimeOnly(r.doneAt)}${repTime ? ` · Tardó ${repTime}` : ''}</span>
+                    </div>
+                  ` : isPending ? `
+                    <div class="actor-avatar pending">⏳</div>
+                    <div class="actor-text">
+                      <span class="actor-name text-warning" style="color:var(--warning);font-weight:700">En espera de reposición</span>
+                      <span class="actor-time">Aviso enviado a Room service</span>
+                    </div>
+                  ` : `
+                    <div class="actor-avatar ok">✓</div>
+                    <div class="actor-text">
+                      <span class="actor-name" style="color:var(--mut);font-weight:600">Revisión preventiva</span>
+                      <span class="actor-time">Minibar completo</span>
+                    </div>
+                  `}
+                </div>
+              </div>
+            </div>
+
+            <div class="history-items-row">
+              <span class="history-items-label">Productos:</span>
+              <div class="items-chips">
+                ${itemsHtml(r.items)}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function historyView() {
+  const allReports = state.data.reports || [];
+  const range = state.historyRange || 'all';
+  const status = state.historyStatus || 'all';
+
+  const totalCount = allReports.length;
+  const doneCount = allReports.filter(r => r.status === 'done').length;
+  const pendingCount = allReports.filter(r => r.status === 'pending').length;
+  const okCount = allReports.filter(r => r.status === 'ok').length;
+
+  return `
+    <div class="page-header">
+      <div class="history-header-titles">
+        <h1>Historial de Reposiciones</h1>
+        <p class="muted" style="margin-top:4px;font-size:14px">Registro permanente de auditoría: trazabilidad de quién registró faltantes, quién repuso y consumo por habitación.</p>
+      </div>
+      <div class="room-summary-pills" style="margin-top:14px">
+        <span class="summary-pill ok">${doneCount} repuestos</span>
+        <span class="summary-pill wait">${pendingCount} pendientes</span>
+        <span class="summary-pill new">${okCount} sin faltantes</span>
+        <span class="summary-pill" style="background:#f1f5f9;color:var(--ink-secondary)">${totalCount} totales</span>
+      </div>
+    </div>
+
+    <div class="card history-filters-card">
+      <div class="history-search-row">
+        <div class="history-search-input-wrap">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input id="history-search-input" class="history-search-input" placeholder="Buscar por habitación (ej. 201) o personal (ej. Ana, Luis)..." value="${h(state.historySearch || '')}">
+          ${state.historySearch ? `
+            <button class="clear-search-btn" data-act="clearHistorySearch" title="Borrar búsqueda">✕</button>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="history-filters-grid">
+        <div class="filter-group">
+          <label class="filter-label">Período:</label>
+          <div class="history-segmented">
+            <button class="h-seg-btn ${range === 'today' ? 'active' : ''}" data-act="setHistoryRange" data-range="today">Hoy</button>
+            <button class="h-seg-btn ${range === '7d' ? 'active' : ''}" data-act="setHistoryRange" data-range="7d">7 días</button>
+            <button class="h-seg-btn ${range === '30d' ? 'active' : ''}" data-act="setHistoryRange" data-range="30d">30 días</button>
+            <button class="h-seg-btn ${range === '60d' ? 'active' : ''}" data-act="setHistoryRange" data-range="60d">2 meses</button>
+            <button class="h-seg-btn ${range === 'all' ? 'active' : ''}" data-act="setHistoryRange" data-range="all">Todo</button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Estado:</label>
+          <div class="history-segmented">
+            <button class="h-seg-btn ${status === 'all' ? 'active' : ''}" data-act="setHistoryStatus" data-status="all">Todos</button>
+            <button class="h-seg-btn ${status === 'done' ? 'active' : ''}" data-act="setHistoryStatus" data-status="done">Repuestos</button>
+            <button class="h-seg-btn ${status === 'pending' ? 'active' : ''}" data-act="setHistoryStatus" data-status="pending">Pendientes</button>
+            <button class="h-seg-btn ${status === 'ok' ? 'active' : ''}" data-act="setHistoryStatus" data-status="ok">Sin faltantes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="history-list-wrapper">
+      ${renderHistoryCards()}
+    </div>
   `;
 }
 
@@ -887,9 +1113,17 @@ const actions = {
     state.banner = '';
     state.openMenuId = null;
     state.openSelectId = null;
-    if (!['pend', 'dash'].includes(d.tab)) await loadAdmin();
+    if (!['pend', 'dash', 'history'].includes(d.tab)) await loadAdmin();
   },
   range: d => { state.range = d.range; },
+  setHistoryRange: d => { state.historyRange = d.range; draw(); },
+  setHistoryStatus: d => { state.historyStatus = d.status; draw(); },
+  clearHistorySearch: () => {
+    state.historySearch = '';
+    const inp = document.getElementById('history-search-input');
+    if (inp) inp.value = '';
+    draw();
+  },
 
   // Acciones de administración
   addStaff: () => {
@@ -976,6 +1210,15 @@ document.addEventListener('click', onEvent);
 document.addEventListener('change', onEvent);
 document.addEventListener('input', e => {
   if (e.target.id === 'login-user') state.loginUser = e.target.value;
+  if (e.target.id === 'history-search-input') {
+    state.historySearch = e.target.value;
+    const listWrapper = document.querySelector('.history-list-wrapper');
+    if (listWrapper) {
+      listWrapper.innerHTML = renderHistoryCards();
+    } else {
+      draw();
+    }
+  }
   if (['p-name', 'n-name', 'n-pin', 'r-number'].includes(e.target.id)) {
     state.formDrafts = state.formDrafts || {};
     state.formDrafts[e.target.id] = e.target.value;

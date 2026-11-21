@@ -111,14 +111,26 @@ module.exports = function buildApi(db) {
 
   // ---------- Datos del sistema ----------
   async function loadReports(user) {
-    const base = `SELECT r.id, r.room, r.status, r.created_at, r.done_at, s.name AS by_name
-                  FROM reports r JOIN staff s ON s.id = r.staff_id`;
+    const base = `SELECT r.id, r.room, r.status, r.created_at, r.done_at,
+                         s.name AS by_name, s.role AS by_role,
+                         s2.name AS done_by_name, s2.role AS done_by_role
+                  FROM reports r
+                  JOIN staff s ON s.id = r.staff_id
+                  LEFT JOIN staff s2 ON s2.id = r.done_by`;
     const { rows } = user.role === 'hk'
-      ? await db.query(base + ' WHERE r.room IN (SELECT number FROM rooms WHERE assigned_to = $1) ORDER BY r.created_at DESC LIMIT 500', [user.id])
-      : await db.query(base + ' ORDER BY r.created_at DESC LIMIT 500');
+      ? await db.query(base + ' WHERE r.room IN (SELECT number FROM rooms WHERE assigned_to = $1) ORDER BY r.created_at DESC LIMIT 1000', [user.id])
+      : await db.query(base + ' ORDER BY r.created_at DESC LIMIT 3000');
     const reports = rows.map(r => ({
-      id: r.id, room: r.room, status: r.status, byName: r.by_name,
-      createdAt: Number(r.created_at), doneAt: r.done_at ? Number(r.done_at) : null, items: {}
+      id: r.id,
+      room: r.room,
+      status: r.status,
+      byName: r.by_name,
+      byRole: r.by_role,
+      doneByName: r.done_by_name || null,
+      doneByRole: r.done_by_role || null,
+      createdAt: Number(r.created_at),
+      doneAt: r.done_at ? Number(r.done_at) : null,
+      items: {}
     }));
     if (reports.length) {
       const marks = reports.map((_, i) => '$' + (i + 1)).join(',');

@@ -1638,6 +1638,324 @@ button:disabled {
 }
 
 /* ==========================================================================
+   HISTORIAL DE REPOSICIONES Y AUDITORÍA
+   ========================================================================== */
+
+.history-header-titles h1 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.history-filters-card {
+  padding: 16px;
+  margin-bottom: 20px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.history-search-row {
+  margin-bottom: 14px;
+}
+
+.history-search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.history-search-input-wrap .search-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--mut);
+  pointer-events: none;
+}
+
+.history-search-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 40px 0 40px;
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.history-search-input:focus {
+  background-color: #ffffff;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.15);
+  outline: none;
+}
+
+.clear-search-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--mut);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.clear-search-btn:hover {
+  color: var(--ink);
+}
+
+.history-filters-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .history-filters-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mut);
+}
+
+.history-segmented {
+  display: flex;
+  background: var(--bg);
+  padding: 3px;
+  border-radius: 10px;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.h-seg-btn {
+  flex: 1;
+  min-width: max-content;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.h-seg-btn.active {
+  background: #ffffff;
+  color: var(--brand);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-card {
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.history-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.history-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.history-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-room-pill {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.history-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.history-badge.done {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.history-badge.pending {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.history-badge.ok {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.history-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mut);
+}
+
+.history-datetime {
+  font-weight: 600;
+}
+
+.history-timeago {
+  color: #94a3b8;
+}
+
+.history-actors-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+@media (min-width: 580px) {
+  .history-actors-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.history-actor-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actor-role-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.actor-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actor-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.actor-avatar.hk {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.actor-avatar.rs {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.actor-avatar.pending {
+  background: #fee2e2;
+  font-size: 13px;
+}
+
+.actor-avatar.ok {
+  background: #dcfce7;
+  color: #166534;
+  font-size: 13px;
+}
+
+.actor-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.actor-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.actor-time {
+  font-size: 11px;
+  color: var(--mut);
+}
+
+.history-items-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-items-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mut);
+  margin-top: 4px;
+}
+
+/* ==========================================================================
    AJUSTES RESPONSIVOS (MOBILE)
    ========================================================================== */
 
