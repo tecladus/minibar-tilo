@@ -62,8 +62,8 @@ async function seed(db) {
     ['Ana', 'hk', '1111'],
     ['Rosa', 'hk', '2222'],
     ['Marta', 'hk', '3333'],
-    ['Luis (mañana)', 'rs', '9001'],
-    ['Sofía (tarde)', 'rs', '9002']
+    ['Luis', 'rs', '9001'],
+    ['Sofía', 'rs', '9002']
   ];
   const ids = [];
   for (const [name, role, pin] of people) {
@@ -138,6 +138,10 @@ async function startDb() {
   } catch (e) {}
   try {
     await db.query("ALTER TABLE reports ADD COLUMN IF NOT EXISTS done_at bigint");
+  } catch (e) {}
+  try {
+    await db.query("UPDATE staff SET name = 'Luis' WHERE name LIKE 'Luis%'");
+    await db.query("UPDATE staff SET name = 'Sofía' WHERE name LIKE 'Sofía%' OR name LIKE 'Sofia%'");
   } catch (e) {}
   await seed(db);
   return db;

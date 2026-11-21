@@ -258,7 +258,19 @@ function loginView() {
 
       <div class="login-user-input-box">
         <label class="login-label" for="login-user">Nombre o Usuario</label>
-        <input id="login-user" class="input" placeholder="Ej. admin, Ana, Luis" value="${h(state.loginUser)}" autocomplete="username" ${state.pinLoading ? 'disabled' : ''}>
+        <input id="login-user" class="input" placeholder="Ej. Ana, Luis, Sofía, admin" value="${h(state.loginUser)}" autocomplete="username" ${state.pinLoading ? 'disabled' : ''}>
+        
+        <div class="quick-user-chips">
+          <span class="quick-chips-hint">O elegí tu nombre directamente:</span>
+          <div class="quick-chips-container">
+            <button type="button" class="quick-chip ${(state.loginUser || '').toLowerCase() === 'ana' ? 'active' : ''}" data-act="selectLoginUser" data-user="Ana">Ana</button>
+            <button type="button" class="quick-chip ${(state.loginUser || '').toLowerCase() === 'rosa' ? 'active' : ''}" data-act="selectLoginUser" data-user="Rosa">Rosa</button>
+            <button type="button" class="quick-chip ${(state.loginUser || '').toLowerCase() === 'marta' ? 'active' : ''}" data-act="selectLoginUser" data-user="Marta">Marta</button>
+            <button type="button" class="quick-chip ${(state.loginUser || '').toLowerCase() === 'luis' ? 'active' : ''}" data-act="selectLoginUser" data-user="Luis">Luis</button>
+            <button type="button" class="quick-chip ${(state.loginUser || '').toLowerCase() === 'sofía' || (state.loginUser || '').toLowerCase() === 'sofia' ? 'active' : ''}" data-act="selectLoginUser" data-user="Sofía">Sofía</button>
+            <button type="button" class="quick-chip admin ${(state.loginUser || '').toLowerCase() === 'admin' || (state.loginUser || '').toLowerCase() === 'administración' ? 'active' : ''}" data-act="selectLoginUser" data-user="admin">Admin</button>
+          </div>
+        </div>
       </div>
 
       <label class="login-label" style="text-align:center">Código PIN (4 números)</label>
@@ -303,7 +315,10 @@ function loginView() {
       </div>
 
       <div class="login-test-hint">
-        Modo prueba: podés ingresar con usuario <b>admin</b> y código <b>0000</b>.
+        <b>Usuarios de prueba (según consigna):</b><br>
+        • <b>Ana</b> (1111) · <b>Rosa</b> (2222) · <b>Marta</b> (3333) — Limpieza<br>
+        • <b>Luis</b> (9001) · <b>Sofía</b> (9002) — Room service<br>
+        • <b>admin</b> (0000) — Administración
       </div>
     </div>
   `;
@@ -1026,6 +1041,11 @@ const actions = {
   },
 
   // Acciones de login
+  selectLoginUser: d => {
+    state.loginUser = d.user;
+    state.error = '';
+    state.pin = '';
+  },
   clear: () => {
     if (state.pinLoading) return;
     state.pin = '';

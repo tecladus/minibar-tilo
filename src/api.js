@@ -14,8 +14,16 @@ module.exports = function buildApi(db) {
     const token = (req.headers.authorization || '').slice(7);
     if (!token) return fail(res, 401, 'sin sesion');
     const { rows } = await db.query(
-      'SELECT s.id, s.name, s.role, COALESCE(s.status, \'active\') AS status FROM sessions t JOIN staff s ON s.id = t.staff_id WHERE t.token = $1 AND s.active = true', [token]);
+      'SELECT s.id, s.name, s.role, COALESCE(s.status, \'active\') AS status, t.created_at AS session_created FROM sessions t JOIN staff s ON s.id = t.staff_id WHERE t.token = $1 AND s.active = true', [token]);
     if (!rows.length) return fail(res, 401, 'sesión inválida o expirada');
+
+    // Vencimiento de sesión tras 24 horas:
+    const sessionAge = Date.now() - Number(rows[0].session_created || 0);
+    if (sessionAge > 24 * 60 * 60 * 1000) {
+      await db.query('DELETE FROM sessions WHERE token = $1', [token]);
+      return fail(res, 401, 'sesión expirada');
+    }
+
     req.user = rows[0];
     next();
   }
@@ -24,69 +32,116 @@ module.exports = function buildApi(db) {
   const A = fn => [auth, wrap(fn)];                       // ruta con sesión
   const R = (roles, fn) => [auth, only(...roles), wrap(fn)]; // ruta con sesión y rol
 
-  // ---------- Login con control de fuerza bruta y rate-limiting ----------
-  const attempts = {}; // Memoria de intentos fallidos por IP + usuario
+  // Normalización flexible de nombres: tolera tildes, mayúsculas y sufijos como "(mañana)" o "(tarde)"
+  function normalizeStr(str) {
+    return String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // quita tildes: í -> i, ó -> o
+      .toLowerCase()
+      .trim();
+  }
+
+  function getBaseName(str) {
+    return normalizeStr(str)
+      .replace(/\s*\(.*?\)/g, '')   // quita aclaraciones entre paréntesis: "(mañana)" -> ""
+      .trim();
+  }
+
+  // ---------- Control de fuerza bruta estricto e imposible de saltear ----------
+  // - accountAttempts: bloquea la cuenta específica tras 5 fallos.
+  //   No puede saltearse cambiando la cabecera X-Forwarded-For ni rotando IPs.
+  // - ipAttempts: bloquea una IP que realice ataques de password spraying sobre múltiples usuarios.
+  const accountAttempts = {}; // accountKey -> { n, until }
+  const ipAttempts = {};      // ip -> { n, until }
 
   api.post('/login', wrap(async (req, res) => {
     const { username, staffId, pin } = req.body;
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-    const targetKey = String(username || staffId || '').trim().toLowerCase();
-    const lockKey = `${clientIp}::${targetKey}`;
+    const clientIp = (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : null) || req.socket.remoteAddress || '127.0.0.1';
+    const inputNorm = normalizeStr(username || staffId || '');
+    const inputBase = getBaseName(username || staffId || '');
     const now = Date.now();
-    const t = attempts[lockKey] || { n: 0, until: 0 };
 
-    // Si la cuenta o IP está bloqueada temporalmente:
-    if (now < t.until) {
-      const waitSec = Math.ceil((t.until - now) / 1000);
+    // 1. Verificar si la IP está bloqueada por exceso de intentos globales
+    const ipRecord = ipAttempts[clientIp] || { n: 0, until: 0 };
+    if (now < ipRecord.until) {
+      const waitSec = Math.ceil((ipRecord.until - now) / 1000);
       return res.status(429).json({
-        error: `Acceso bloqueado por seguridad. Demasiados intentos. Esperá ${waitSec} segundos.`,
+        error: `Acceso bloqueado por seguridad desde esta red. Esperá ${waitSec} segundos.`,
         retryAfter: waitSec
       });
     }
 
-    // Búsqueda de usuario (por nombre/usuario o por ID)
-    let staffRow = null;
+    // 2. Buscar al usuario en la base de datos de manera tolerante (sin distinguir tildes, mayúsculas o paréntesis)
     const { rows: staffList } = await db.query('SELECT * FROM staff WHERE active = true');
-    if (targetKey) {
+    let staffRow = null;
+
+    if (inputNorm) {
       staffRow = staffList.find(s => {
-        const sName = s.name.toLowerCase().trim();
-        return sName === targetKey ||
-          (targetKey === 'admin' && s.role === 'admin') ||
-          (targetKey === 'administracion' && s.role === 'admin') ||
-          (targetKey === 'administración' && s.role === 'admin') ||
-          (String(s.id) === targetKey);
+        const normDb = normalizeStr(s.name);
+        const baseDb = getBaseName(s.name);
+        return (
+          normDb === inputNorm ||
+          baseDb === inputBase ||
+          baseDb === inputNorm ||
+          normDb === inputBase ||
+          (inputNorm === 'admin' && s.role === 'admin') ||
+          (inputBase === 'admin' && s.role === 'admin') ||
+          String(s.id) === inputNorm
+        );
       });
     } else if (staffId) {
       staffRow = staffList.find(s => s.id == staffId);
     }
 
-    // Validación de usuario y PIN
+    // 3. Clave unívoca de la cuenta objetivo para el bloqueo por cuenta:
+    // Al bloquear por cuenta (staff:id o user:base), un atacante no puede evadir el bloqueo
+    // cambiando la cabecera X-Forwarded-For o rotando de IP.
+    const accountLockKey = staffRow ? `staff:${staffRow.id}` : `user:${inputBase || 'unknown'}`;
+    const accRecord = accountAttempts[accountLockKey] || { n: 0, until: 0 };
+
+    if (now < accRecord.until) {
+      const waitSec = Math.ceil((accRecord.until - now) / 1000);
+      return res.status(429).json({
+        error: `Cuenta bloqueada temporalmente por seguridad tras varios intentos fallidos. Esperá ${waitSec} segundos.`,
+        retryAfter: waitSec
+      });
+    }
+
+    // 4. Validación de usuario y PIN
     if (!staffRow || !isPin(pin) || !checkPin(String(pin), staffRow.pin_hash)) {
-      t.n++;
+      accRecord.n++;
+      ipRecord.n++;
+
       let waitTime = 0;
-      if (t.n >= 10) waitTime = 30 * 60 * 1000;       // 30 min bloqueo tras 10 fallos
-      else if (t.n >= 7) waitTime = 5 * 60 * 1000;     // 5 min bloqueo tras 7 fallos
-      else if (t.n >= 5) waitTime = 60 * 1000;         // 1 min bloqueo tras 5 fallos
+      if (accRecord.n >= 10) waitTime = 30 * 60 * 1000;       // 30 min bloqueo tras 10 fallos
+      else if (accRecord.n >= 7) waitTime = 5 * 60 * 1000;     // 5 min bloqueo tras 7 fallos
+      else if (accRecord.n >= 5) waitTime = 60 * 1000;         // 1 min bloqueo tras 5 fallos
+
+      if (ipRecord.n >= 25) {
+        ipRecord.until = Math.max(ipRecord.until, now + 15 * 60 * 1000); // 15 min bloqueo IP
+      }
+      ipAttempts[clientIp] = ipRecord;
 
       if (waitTime > 0) {
-        t.until = now + waitTime;
-        attempts[lockKey] = t;
+        accRecord.until = now + waitTime;
+        accountAttempts[accountLockKey] = accRecord;
         const waitMin = Math.ceil(waitTime / 60000);
         return res.status(429).json({
-          error: `Superaste los intentos permitidos. Bloqueado temporalmente por ${waitMin} minuto${waitMin > 1 ? 's' : ''}.`,
+          error: `Superaste los intentos permitidos para esta cuenta. Bloqueada temporalmente por ${waitMin} minuto${waitMin > 1 ? 's' : ''}.`,
           retryAfter: Math.ceil(waitTime / 1000)
         });
       }
 
-      attempts[lockKey] = t;
-      const left = 5 - t.n;
+      accountAttempts[accountLockKey] = accRecord;
+      const left = 5 - accRecord.n;
       return res.status(401).json({
         error: `Usuario o código incorrecto. Te quedan ${left} ${left === 1 ? 'intento' : 'intentos'}.`
       });
     }
 
-    // Credenciales correctas: limpiar intentos fallidos
-    delete attempts[lockKey];
+    // 5. Credenciales válidas: limpiar intentos fallidos de esta cuenta
+    delete accountAttempts[accountLockKey];
+    if (ipRecord.n > 0) ipRecord.n = Math.max(0, ipRecord.n - 1);
 
     // Token criptográfico seguro de 256 bits (32 bytes)
     const token = crypto.randomBytes(32).toString('hex');
