@@ -143,6 +143,21 @@ async function startDb() {
     await db.query("UPDATE staff SET name = 'Luis' WHERE name LIKE 'Luis%'");
     await db.query("UPDATE staff SET name = 'Sofía' WHERE name LIKE 'Sofía%' OR name LIKE 'Sofia%'");
   } catch (e) {}
+
+  // Proteger la base de datos en Supabase activando Row Level Security (RLS)
+  // y bloqueando la API pública anónima de PostgREST para que nadie pueda consultar las tablas por fuera
+  if (process.env.DATABASE_URL) {
+    try {
+      const tables = ['staff', 'rooms', 'products', 'reports', 'report_items', 'sessions'];
+      for (const t of tables) {
+        await db.query(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`);
+      }
+      await db.query("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated");
+    } catch (e) {
+      console.warn('Aviso RLS Supabase:', e.message);
+    }
+  }
+
   await seed(db);
   return db;
 }
